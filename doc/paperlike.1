@@ -67,7 +67,8 @@ each monitor shows, or by sunrise and sunset.
 Print the current state, for example for a status bar.
 .TP
 .B reload
-Re-read the configuration file.
+Re-read the configuration file. Not normally needed, since edits apply
+automatically.
 .TP
 .B quit
 Stop the daemon.
@@ -99,9 +100,15 @@ Snooze for five minutes.
 Intensity up or down.
 .SH FILES
 .TP
-.I $XDG_CONFIG_HOME/paperlike/config.toml
-Settings, saved automatically. Defaults to
-.IR ~/.config/paperlike/config.toml .
+.I $XDG_CONFIG_HOME/paperlike/paperlike.toml
+Settings. Defaults to
+.IR ~/.config/paperlike/paperlike.toml .
+The daemon saves it when settings change, and applies edits made to it as
+soon as the file is saved.
+A file with errors is ignored until it parses again.
+An older
+.I config.toml
+in the same directory is renamed on first start.
 .TP
 .I $XDG_RUNTIME_DIR/paperlike<display>.sock
 Command socket of the daemon for that display.

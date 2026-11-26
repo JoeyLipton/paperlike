@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The config file is now `~/.config/paperlike/paperlike.toml`. An existing
+  `config.toml` is renamed on first start.
+- Edits to the config file apply as soon as it's saved. A file that doesn't
+  parse is ignored and the error is printed.
+
 ## 0.1.0 (2026-11-26)
 
 First release.

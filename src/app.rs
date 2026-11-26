@@ -23,6 +23,7 @@ use crate::ui::{self, Fonts, Key, Painter};
 use crate::views::control_center::{self, ControlCenter};
 use crate::views::settings::{self, Page, Settings};
 use crate::views::{Ctx, Pause, Status, menu};
+use crate::watch::FileWatch;
 use crate::x11::keys::{self, Grabs, KeyMap};
 use crate::x11::overlay::{self, Content, Overlay, TextureLayer};
 use crate::x11::surface::Surface;
@@ -61,6 +62,11 @@ pub struct App {
     keymap: KeyMap,
     grabs: Grabs,
     ipc: ipc::Server,
+    /// Notices edits to the config file.
+    watch: Option<FileWatch>,
+    /// What we last wrote to (or read from) the config file, so our own
+    /// saves don't count as edits.
+    last_written: Option<String>,
     cc: Option<Popup<ControlCenter>>,
     menu: Option<Popup<()>>,
     settings: Option<(Surface, Settings)>,
@@ -115,6 +121,10 @@ impl App {
         xc.watch_selection(xc.cm_selection)?;
         xc.watch_selection(xc.tray_selection)?;
         let keymap = KeyMap::load(&xc)?;
+        let watch = FileWatch::new(&Config::path())
+            .map_err(|e| eprintln!("paperlike: not watching the config file for edits: {e}"))
+            .ok();
+        let last_written = std::fs::read_to_string(Config::path()).ok();
         let now = Instant::now();
         let mut app = App {
             compositor: xc.compositor_running(),
@@ -128,6 +138,8 @@ impl App {
             keymap,
             grabs: Grabs::default(),
             ipc,
+            watch,
+            last_written,
             cc: None,
             menu: None,
             settings: None,
@@ -176,6 +188,8 @@ impl App {
         }
         let xfd = self.xc.conn.stream().as_raw_fd();
         let ifd = self.ipc.fd();
+        // poll() skips negative descriptors.
+        let wfd = self.watch.as_ref().map_or(-1, FileWatch::fd);
         while self.running && !STOP.load(Ordering::SeqCst) {
             self.drain()?;
             loop {
@@ -188,18 +202,21 @@ impl App {
             if !self.running {
                 break;
             }
-            let mut fds = [
-                libc::pollfd { fd: xfd, events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: ifd, events: libc::POLLIN, revents: 0 },
-            ];
+            let mut fds =
+                [xfd, ifd, wfd].map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 });
             let timeout = self.timeout_ms();
-            // SAFETY: `fds` is a valid array of two pollfd structs.
-            unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) };
+            // SAFETY: `fds` is a valid array of pollfd structs of the given length.
+            unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
             if fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0 {
                 return Err("lost the connection to the X server".into());
             }
             if fds[1].revents & libc::POLLIN != 0 {
                 self.handle_ipc();
+            }
+            if fds[2].revents & libc::POLLIN != 0
+                && self.watch.as_ref().is_some_and(FileWatch::changed)
+            {
+                self.config_file_changed();
             }
         }
         self.shutdown();
@@ -319,9 +336,40 @@ impl App {
 
     fn save(&mut self) {
         self.save_at = None;
-        if let Err(e) = self.cfg.save() {
-            eprintln!("paperlike: could not save config: {e}");
+        match self.cfg.save() {
+            Ok(text) => self.last_written = Some(text),
+            Err(e) => eprintln!("paperlike: could not save config: {e}"),
         }
+    }
+
+    /// The config file was saved by someone else, most likely a text
+    /// editor: apply it now.
+    fn config_file_changed(&mut self) {
+        let Ok(text) = std::fs::read_to_string(Config::path()) else {
+            return;
+        };
+        if self.last_written.as_deref() == Some(text.as_str()) {
+            return;
+        }
+        match Config::parse(&text) {
+            Ok(cfg) => {
+                self.last_written = Some(text);
+                // The file wins over a not-yet-saved change from the UI.
+                self.save_at = None;
+                self.apply_config(cfg);
+            }
+            // Probably mid-edit; keep running with the current settings.
+            Err(e) => eprintln!("paperlike: ignoring {}: {e}", Config::path().display()),
+        }
+    }
+
+    fn apply_config(&mut self, cfg: Config) {
+        self.cfg = cfg;
+        self.grabs.regrab(&self.xc, &self.keymap, &self.cfg.hotkeys);
+        let now = Instant::now();
+        self.next_sample = now;
+        self.next_theme_poll = now;
+        self.state_changed();
     }
 
     // ---- state ------------------------------------------------------------
@@ -1005,9 +1053,19 @@ impl App {
                 "settings reset".into()
             }
             Cmd::ReloadConfig => {
-                self.cfg = Config::load();
-                self.grabs.regrab(&self.xc, &self.keymap, &self.cfg.hotkeys);
-                self.state_changed();
+                let path = Config::path();
+                let cfg = match std::fs::read_to_string(&path) {
+                    Ok(text) => {
+                        let cfg =
+                            Config::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+                        self.last_written = Some(text);
+                        cfg
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
+                    Err(e) => return Err(format!("{}: {e}", path.display()).into()),
+                };
+                self.save_at = None;
+                self.apply_config(cfg);
                 "reloaded".into()
             }
             Cmd::Quit => {

@@ -11,7 +11,10 @@ It's written in Rust for X11 and was built with i3 in mind, but any
 window manager with a compositor should work. It was inspired by
 [Paperman](https://paperman.cc/), which doesn't have a Linux version.
 
-![Without and with the Linen texture](docs/before-after.png)
+![Left: no texture. Right: Matte at its default 20%](docs/before-after.png)
+
+<sub>Left of the line: no texture. Right: Matte at its default 20%. Open the
+image at full size to see the grain.</sub>
 
 <p>
   <img src="docs/control-center.png" alt="The control center" height="380">
@@ -135,9 +138,10 @@ focus-exclude           = [ "name = 'Paperlike overlay'" ];
 
 ## Configuration
 
-Settings are saved to `~/.config/paperlike/config.toml` whenever you change
-something. If you edit the file by hand, run `paperlike reload`. Two options
-are only in the file:
+Settings live in `~/.config/paperlike/paperlike.toml`. The app saves them
+whenever you change something, and edits you make to the file apply as soon
+as you save it. If an edit doesn't parse, it's ignored (the error is printed)
+and the current settings stay in place. Two options are only in the file:
 
 - `grain_scale`: texture pixels to screen pixels. Try `1.5` or `2` on HiDPI
   screens (it's also on the Texture page).

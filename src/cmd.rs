@@ -71,7 +71,7 @@ usage: paperlike [command]
   snooze <minutes>|off
   theme <light|dark|system|screen|sun>
   status [--json]       print the current state (handy for status bars)
-  reload                re-read the config file
+  reload                re-read the config file (edits also apply on save)
   quit                  stop the daemon
 ";
 

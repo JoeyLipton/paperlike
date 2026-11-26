@@ -17,6 +17,7 @@ mod texture;
 mod theme;
 mod ui;
 mod views;
+mod watch;
 mod x11;
 
 use std::process::ExitCode;

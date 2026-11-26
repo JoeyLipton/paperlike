@@ -1,4 +1,4 @@
-//! Settings, stored as TOML in `$XDG_CONFIG_HOME/paperlike/config.toml`.
+//! Settings, stored as TOML in `$XDG_CONFIG_HOME/paperlike/paperlike.toml`.
 //!
 //! Every field has a default, so partial or hand-edited files are fine.
 //! Unknown texture or preset names fall back to the default instead of
@@ -409,21 +409,34 @@ impl Config {
     }
 
     pub fn path() -> PathBuf {
+        config_home().join("paperlike").join("paperlike.toml")
+    }
+
+    /// Where versions before 0.2 kept the file.
+    fn old_path() -> PathBuf {
         config_home().join("paperlike").join("config.toml")
     }
 
+    /// Parses a config file's text and pulls values back into range.
+    pub fn parse(text: &str) -> Result<Config, toml::de::Error> {
+        let mut c: Config = toml::from_str(text)?;
+        c.sanitize();
+        Ok(c)
+    }
+
     /// Loads the config, or the defaults if there isn't one. A file that
-    /// can't be parsed at all is renamed to `config.toml.broken`.
+    /// can't be parsed at all is renamed to `paperlike.toml.broken`.
     pub fn load() -> Config {
         let path = Self::path();
+        let old = Self::old_path();
+        if !path.exists() && old.exists() && std::fs::rename(&old, &path).is_ok() {
+            eprintln!("paperlike: moved {} to {}", old.display(), path.display());
+        }
         let Ok(text) = std::fs::read_to_string(&path) else {
             return Config::default();
         };
-        match toml::from_str::<Config>(&text) {
-            Ok(mut c) => {
-                c.sanitize();
-                c
-            }
+        match Self::parse(&text) {
+            Ok(c) => c,
             Err(e) => {
                 eprintln!("paperlike: {} is invalid ({e}); using defaults", path.display());
                 let _ = std::fs::rename(&path, path.with_extension("toml.broken"));
@@ -432,16 +445,17 @@ impl Config {
         }
     }
 
-    /// Writes the config atomically.
-    pub fn save(&self) -> std::io::Result<()> {
+    /// Writes the config atomically and returns the text written.
+    pub fn save(&self) -> std::io::Result<String> {
         let path = Self::path();
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
         let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, text)?;
-        std::fs::rename(tmp, path)
+        std::fs::write(&tmp, &text)?;
+        std::fs::rename(tmp, path)?;
+        Ok(text)
     }
 }
 
