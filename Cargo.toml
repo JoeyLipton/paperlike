@@ -1,0 +1,33 @@
+[package]
+name = "paperlike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Paper-like texture overlay for X11 desktops"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["x11", "i3", "overlay", "eye-strain", "texture"]
+categories = ["command-line-utilities", "gui"]
+exclude = ["docs/", ".github/", "packaging/"]
+
+[dependencies]
+x11rb = { version = "0.14", default-features = false, features = ["randr", "render", "shape", "xfixes"] }
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+fontdue = "0.9"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+libc = "0.2"
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Texture generation is noticeably slow without optimisation; keep debug builds usable.
+[profile.dev.package."*"]
+opt-level = 2
+[profile.dev]
+opt-level = 1

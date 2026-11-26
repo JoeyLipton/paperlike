@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Paperlike
+GenericName=Screen texture
+Comment=Paper-like matte surface for your screen
+Exec=paperlike
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=paper;matte;texture;eye;strain;glare;

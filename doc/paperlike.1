@@ -1,0 +1,134 @@
+.TH PAPERLIKE 1 "2026-11" "paperlike 0.1.0" "User Commands"
+.SH NAME
+paperlike \- paper-like texture overlay for X11 desktops
+.SH SYNOPSIS
+.B paperlike
+.RI [ command " [" args ...]]
+.SH DESCRIPTION
+.B paperlike
+lays a subtle paper or fabric texture over every monitor to soften glare and
+harsh contrast, without tinting colours.
+It runs as a small daemon with a tray icon, a control center popup and a
+settings window.
+.PP
+Run without arguments,
+.B paperlike
+starts the daemon, or opens the control center if a daemon is already
+running.
+Any other command is sent to the running daemon over a Unix socket and its
+reply is printed.
+.PP
+A compositing manager such as
+.BR picom (1)
+must be running; without one the overlay stays hidden.
+.SH COMMANDS
+.TP
+.B daemon
+Start the daemon in the foreground. Fails if one is already running.
+.TP
+.BR toggle " | " on " | " off
+Switch the texture.
+.TP
+.B panel
+Toggle the control center.
+.TP
+.BR settings " [\fIpage\fR]"
+Open the settings window, optionally on
+.IR page :
+.BR general ", " texture ", " lamp ", " schedule ", " exceptions ", "
+.BR display ", " hotkeys " or " about .
+.TP
+.BR next " | " prev
+Switch to the next or previous texture.
+.TP
+.BR texture " \fIname\fR [" light | dark ]
+Choose a texture for light or dark screens (default: whichever is showing).
+Textures:
+.BR matte ", " crosshatch ", " parchment ", " linen ", " cold-press ", "
+.BR rice-paper ", " frost ", " felt ", " graphite ", " coarse-matte .
+.TP
+.BR intensity " \fIN\fR | +\fIN\fR | \-\fIN\fR"
+Set or nudge the intensity of the current texture, in percent.
+Each texture has its own range.
+.TP
+.BR lamp " [" on | off | toggle | \fIpreset\fR]
+Control the Desk Lamp. Presets:
+.BR candle ", " late-night ", " side-lamp ", " spotlight ", " sunset ", " ambient .
+.TP
+.BR snooze " \fIminutes\fR | " off
+Hide the texture for a while, or bring it back early.
+.TP
+.BR theme " " light | dark | system | screen | sun
+Choose how the light or dark texture is picked:
+always light, always dark, following the GTK colour scheme, following what
+each monitor shows, or by sunrise and sunset.
+.TP
+.BR status " [" \-\-json ]
+Print the current state, for example for a status bar.
+.TP
+.B reload
+Re-read the configuration file.
+.TP
+.B quit
+Stop the daemon.
+.TP
+.BR help ", " \-h ", " \-\-help
+Show a summary of commands.
+.TP
+.BR version ", " \-V ", " \-\-version
+Show the version.
+.SH MOUSE
+Clicking the tray icon opens the control center, right-clicking opens a menu,
+middle-clicking toggles the texture and scrolling changes the intensity.
+.SH HOTKEYS
+Defaults, all configurable in the settings window:
+.TP
+.B Super+Alt+P
+Toggle the texture.
+.TP
+.B Super+Alt+T
+Next texture.
+.TP
+.B Super+Alt+O
+Toggle the Desk Lamp.
+.TP
+.B Super+Alt+\e
+Snooze for five minutes.
+.TP
+.BR Super+Alt+] " / " Super+Alt+[
+Intensity up or down.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/paperlike/config.toml
+Settings, saved automatically. Defaults to
+.IR ~/.config/paperlike/config.toml .
+.TP
+.I $XDG_RUNTIME_DIR/paperlike<display>.sock
+Command socket of the daemon for that display.
+.TP
+.I $XDG_CONFIG_HOME/autostart/paperlike.desktop
+Created by the \(lqOpen at login\(rq setting.
+.SH ENVIRONMENT
+.TP
+.B DISPLAY
+The X display to cover.
+.TP
+.B PAPERLIKE_DEBUG
+If set, X protocol errors are logged to standard error.
+.SH EXIT STATUS
+0 on success, 1 on failure, 2 for an invalid command, and 3 for
+.B status
+when no daemon is running.
+.SH EXAMPLES
+Start with i3, in
+.IR ~/.config/i3/config :
+.PP
+.RS
+.nf
+exec \-\-no\-startup\-id paperlike
+bindsym $mod+Mod1+t exec \-\-no\-startup\-id paperlike next
+.fi
+.RE
+.SH SEE ALSO
+.BR picom (1),
+.BR i3 (1)
