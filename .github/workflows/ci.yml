@@ -12,7 +12,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -24,7 +24,7 @@ jobs:
     name: Minimum Rust version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust 1.88
         run: rustup toolchain install 1.88.0 --profile minimal
       - uses: Swatinem/rust-cache@v2
