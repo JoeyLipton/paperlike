@@ -2,8 +2,8 @@
 
 use super::paint::Col;
 
-pub const PANEL_TOP: Col = Col(60, 64, 46, 252);
-pub const PANEL_BOTTOM: Col = Col(44, 48, 34, 252);
+pub const PANEL_TOP: Col = Col(60, 64, 46, 255);
+pub const PANEL_BOTTOM: Col = Col(44, 48, 34, 255);
 pub const PANEL_EDGE: Col = Col(255, 255, 255, 22);
 pub const CONTENT_SHADE: Col = Col(0, 0, 0, 34);
 

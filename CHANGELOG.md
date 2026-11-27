@@ -9,6 +9,11 @@
 - Monitors that lie inside another one (mirrored outputs, or virtual
   monitors from `xrandr --setmonitor`) no longer get a second overlay,
   which doubled the texture.
+- Text in windows behind the control center and settings no longer shows
+  faintly through them.
+- Memory used while rendering a texture is given back afterwards; Frost
+  used to keep about 40 MB. Rendering the screen-sized textures also peaks
+  at roughly half the memory it did.
 
 ## 0.1.0 (2026-11-26)
 

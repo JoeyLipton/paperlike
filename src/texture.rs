@@ -219,13 +219,16 @@ fn srgb(lin: [f32; 3]) -> [f32; 3] {
 fn matte(p: &Perlin, size: usize) -> Image {
     let g = Grid::tile(size, size, 200.0, 200.0);
     let t = Turbulence::fractal(1.5, 3, stitch(200.0));
-    let [r, gr, b] = g.noise_rgb(p, &t);
-    let a = g.noise(p, &t, 3);
-    let mut c = Canvas::new(size, size);
-    c.over_with(|i| {
-        let l = linear_to_srgb(q8(desaturate(r[i], gr[i], b[i])));
-        ([l, l, l], a[i])
-    });
+    let c = {
+        let lum: Vec<f32> = {
+            let [r, gr, b] = g.noise_rgb(p, &t);
+            (0..size * size).map(|i| linear_to_srgb(q8(desaturate(r[i], gr[i], b[i])))).collect()
+        };
+        let a = g.noise(p, &t, 3);
+        let mut c = Canvas::new(size, size);
+        c.over_with(|i| ([lum[i]; 3], a[i]));
+        c
+    };
     Image::tile(c)
 }
 
@@ -234,8 +237,10 @@ fn matte(p: &Perlin, size: usize) -> Image {
 fn crosshatch(p: &Perlin, scale: f32) -> Image {
     let size = dev(1000.0, scale);
     let g = Grid::tile(size, size, 200.0, 200.0);
-    let t = Turbulence::fractal(1.5, 3, stitch(200.0));
-    let [r, gr, b] = g.noise_rgb(p, &t);
+    let grain: Vec<f32> = {
+        let [r, gr, b] = g.noise_rgb(p, &Turbulence::fractal(1.5, 3, stitch(200.0)));
+        (0..size * size).map(|i| (0.15 * (r[i] + gr[i] + b[i])).clamp(0.0, 1.0)).collect()
+    };
     let thread = hex_srgb(0x785a28);
     let k = std::f32::consts::FRAC_1_SQRT_2;
     // One stripe per 4px: clear until 1.5px, ramp up by 2px, hold until
@@ -255,7 +260,8 @@ fn crosshatch(p: &Perlin, scale: f32) -> Image {
     };
     let css = |i: usize| (((i % size) as f32 + 0.5) / scale, ((i / size) as f32 + 0.5) / scale);
     let mut c = Canvas::new(size, size);
-    c.over_with(|i| ([0.0; 3], (0.15 * (r[i] + gr[i] + b[i])).clamp(0.0, 1.0)));
+    c.over_with(|i| ([0.0; 3], grain[i]));
+    drop(grain);
     c.over_with(|i| {
         let (u, v) = css(i);
         (thread, stripe(k * (2000.0 - u - v)))
@@ -276,21 +282,28 @@ fn parchment(p: &Perlin, dark: bool, screen: (usize, usize)) -> Image {
     // Stitched over a slightly larger area than the image; only the
     // frequency rounding matters here since the image isn't tiled.
     let region = Some((0.0, 0.0, 2880.0, 1620.0));
-    let noise = g.noise(p, &Turbulence::fractal(0.035, 4, region), 3);
-    let veins = g.noise(p, &Turbulence::new(0.006, 0.06, 2, true, region), 0);
-    let height: Vec<f32> = noise
-        .iter()
-        .zip(&veins)
-        .map(|(&n, &v)| {
-            let mask = q8((1.5 * v - 0.75).clamp(0.0, 1.0));
-            q8(0.6 * n * mask + 0.4 * n)
-        })
-        .collect();
+    // This one is screen-sized, so each stage is freed as soon as the next
+    // is built: at 4K every buffer here is 33 MB or more.
+    let height: Vec<f32> = {
+        let noise = g.noise(p, &Turbulence::fractal(0.035, 4, region), 3);
+        let veins = g.noise(p, &Turbulence::new(0.006, 0.06, 2, true, region), 0);
+        noise
+            .iter()
+            .zip(&veins)
+            .map(|(&n, &v)| {
+                let mask = q8((1.5 * v - 0.75).clamp(0.0, 1.0));
+                q8(0.6 * n * mask + 0.4 * n)
+            })
+            .collect()
+    };
     let (surface, light, paper) =
         if dark { (5.4, 0xA68B6D, 0x1C130A) } else { (4.5, 0xFFFFFF, 0xEAD5A6) };
     let nl =
         diffuse(&height, w, h, (surface * g.sx as f32, surface * g.sy as f32), 55.0, 60.0, false);
-    Image::full(lit_paper(w, h, &nl, light, paper, dark))
+    drop(height);
+    let c = lit_paper(w, h, &nl, light, paper, dark);
+    drop(nl);
+    Image::full(c)
 }
 
 /// Paper colour combined with a lit relief: multiplied for light screens,
@@ -366,11 +379,11 @@ fn rice_paper(p: &Perlin, dark: bool, scale: f32, screen: (usize, usize)) -> Ima
     let layer = |size_css: f64, t: Turbulence| {
         let size = dev(size_css, scale);
         let g = Grid::tile(size, size, size_css, size_css);
-        let [r, gr, b] = g.noise_rgb(p, &t);
-        let a = g.noise(p, &t, 3);
-        let lum: Vec<f32> =
-            (0..size * size).map(|i| linear_to_srgb(q8(desaturate(r[i], gr[i], b[i])))).collect();
-        (size, lum, a)
+        let lum: Vec<f32> = {
+            let [r, gr, b] = g.noise_rgb(p, &t);
+            (0..size * size).map(|i| linear_to_srgb(q8(desaturate(r[i], gr[i], b[i])))).collect()
+        };
+        (size, lum, g.noise(p, &t, 3))
     };
     let (s1, l1, a1) = layer(500.0, Turbulence::fractal(0.6, 2, stitch(500.0)));
     let (s2, l2, a2) = layer(900.0, Turbulence::new(0.0044, 0.089, 1, false, stitch(900.0)));
@@ -389,6 +402,7 @@ fn rice_paper(p: &Perlin, dark: bool, scale: f32, screen: (usize, usize)) -> Ima
         }
         (col, 1.0)
     });
+    drop((l1, a1, l2, a2));
     Image::full(c)
 }
 
@@ -399,12 +413,15 @@ fn frost(p: &Perlin, dark: bool, scale: f32) -> Image {
     let mut c = Canvas::new(size, size);
     if dark {
         c.fill(hex_srgb(0x8CAAC8), 0.1);
-        let clouds = g.noise(p, &Turbulence::fractal(0.008, 4, stitch(800.0)), 0);
         let t = Turbulence::fractal(1.2, 2, stitch(800.0));
+        // Grain alpha, masked by cloud density.
+        let alpha: Vec<f32> = {
+            let clouds = g.noise(p, &Turbulence::fractal(0.008, 4, stitch(800.0)), 0);
+            let a = g.noise(p, &t, 3);
+            a.iter().zip(&clouds).map(|(a, c)| a * c * 0.85).collect()
+        };
         let [r, gr, b] = g.noise_rgb(p, &t);
-        let a = g.noise(p, &t, 3);
-        // Coloured grain, masked by cloud density.
-        c.over_with(|i| (srgb([r[i], gr[i], b[i]]), a[i] * clouds[i] * 0.85));
+        c.over_with(|i| (srgb([r[i], gr[i], b[i]]), alpha[i]));
     } else {
         c.fill(hex_srgb(0x5E728A), 0.28);
         let sum = |t: &Turbulence| {
@@ -414,6 +431,7 @@ fn frost(p: &Perlin, dark: bool, scale: f32) -> Image {
         let clouds = sum(&Turbulence::fractal(0.012, 5, stitch(800.0)));
         let tint = srgb([0.14, 0.19, 0.25]);
         c.over_with(|i| (tint, q8((0.42 * clouds[i]).clamp(0.0, 1.0)) * 0.95));
+        drop(clouds);
         let grain = sum(&Turbulence::fractal(1.35, 2, stitch(800.0)));
         let tint = srgb([0.08, 0.10, 0.13]);
         c.over_with(|i| (tint, q8((0.24 * grain[i]).clamp(0.0, 1.0)) * 0.70));

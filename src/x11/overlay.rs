@@ -221,8 +221,10 @@ impl Overlay {
             }
         };
         xc.put_bgra(pixmap, gc, 0, 0, w, h, &img.bgra)?;
-        let pic = xc.conn.generate_id()?;
         let repeat = if img.repeat { Repeat::NORMAL } else { Repeat::NONE };
+        drop(img);
+        release_scratch_memory();
+        let pic = xc.conn.generate_id()?;
         xc.conn.render_create_picture(
             pic,
             pixmap,
@@ -240,6 +242,17 @@ impl Overlay {
         }
         self.tiles.push(Tile { key, pixmap, pic, used: self.clock });
         Ok(pic)
+    }
+}
+
+/// Rendering a texture goes through tens of megabytes of scratch buffers.
+/// glibc keeps freed heap memory for reuse, so without this the daemon could
+/// sit on that memory until it exits.
+fn release_scratch_memory() {
+    // SAFETY: malloc_trim only returns memory that is already free.
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        libc::malloc_trim(0);
     }
 }
 
