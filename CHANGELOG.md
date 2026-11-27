@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Releases include ARM64 (aarch64) Linux binaries. They were also added to
+  the 0.3.0 release.
+
 ## 0.3.0 (2026-11-27)
 
 - The texture hides on monitors showing a fullscreen window, so videos and

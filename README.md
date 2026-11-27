@@ -63,8 +63,8 @@ git clone <this repo> && cd paperlike
 make install            # builds and installs to ~/.local
 ```
 
-Prebuilt x86_64 binaries (glibc 2.35 or newer) are attached to each GitHub
-release, and Arch users can use the PKGBUILD in `packaging/arch`.
+Prebuilt binaries for x86_64 and ARM64 (glibc 2.35 or newer) are attached
+to each GitHub release, and Arch users can use the PKGBUILD in `packaging/arch`.
 
 ## Getting started
 
