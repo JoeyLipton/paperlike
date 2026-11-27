@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-26)
 
 - The config file is now `~/.config/paperlike/paperlike.toml`. An existing
   `config.toml` is renamed on first start.
