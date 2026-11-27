@@ -58,13 +58,17 @@ repaints unless you change something.
 
 ## Installing
 
+Prebuilt binaries for x86_64 and ARM64 (glibc 2.35 or newer) are attached
+to each GitHub release. Unpack one and put `paperlike` somewhere on your
+`PATH`.
+
+To build from source, clone this repository and run:
+
 ```sh
-git clone <this repo> && cd paperlike
 make install            # builds and installs to ~/.local
 ```
 
-Prebuilt binaries for x86_64 and ARM64 (glibc 2.35 or newer) are attached
-to each GitHub release, and Arch users can use the PKGBUILD in `packaging/arch`.
+On Arch, `packaging/arch/PKGBUILD` builds a package from your checkout.
 
 ## Getting started
 
@@ -162,13 +166,15 @@ focus-exclude           = [ "name = 'Paperlike overlay'" ];
 Settings live in `~/.config/paperlike/paperlike.toml`. The app saves them
 whenever you change something, and edits you make to the file apply as soon
 as you save it. If an edit doesn't parse, it's ignored (the error is printed)
-and the current settings stay in place. Two options are only in the file:
+and the current settings stay in place.
 
-- `grain_scale`: texture pixels to screen pixels on the main monitor. Try
-  `1.5` or `2` on HiDPI screens (it's also on the Texture page). Other
-  monitors are matched to it by pixel density unless `match_grain` is
-  `false`.
-- `ui_scale`: size of the UI. `0` (the default) uses `Xft.dpi`.
+Everything is in the settings window except `ui_scale`, the size of the UI.
+`0` (the default) works it out from `Xft.dpi`.
+
+On HiDPI screens, try a grain scale of 1.5× or 2× (Settings › Texture, or
+`grain_scale`). It applies to the main monitor; other monitors are matched
+to it by pixel density unless that's switched off in Settings › Display
+(`match_grain`).
 
 ## How it works
 
@@ -184,7 +190,13 @@ See `src/svgfx.rs` and `src/texture.rs`.
 cargo build --release
 cargo test
 cargo clippy --all-targets
+tests/desktop.sh target/release/paperlike
 ```
+
+`tests/desktop.sh` runs paperlike in a throwaway X session (it needs Xvfb,
+i3, picom, xterm, xdotool, xwininfo and xrandr) and checks the overlay, the
+tray icon, fullscreen hiding, `paperlike hide` and live config edits. CI
+runs it on every push.
 
 `paperlike preview <dir>` renders every texture into PPM files without
 needing an X server, which is handy when working on textures.

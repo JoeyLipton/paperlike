@@ -5,10 +5,10 @@
 # To publish on the AUR, point `source` at the public git repository instead.
 
 pkgname=paperlike-git
-pkgver=0.1.0.r1.g8fe9b8f
+pkgver=1.0.0
 pkgrel=1
 pkgdesc='Paper-like texture overlay for X11 desktops'
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 license=('MIT OR Apache-2.0')
 depends=('gcc-libs' 'glibc')
 makedepends=('cargo' 'git')

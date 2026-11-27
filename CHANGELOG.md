@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-11-27)
+
+The first stable release. The command line and the config file format
+won't change incompatibly within 1.x.
 
 - Releases include ARM64 (aarch64) Linux binaries. They were also added to
   the 0.3.0 release.
+- A desktop smoke test runs paperlike in a real (virtual) X session with
+  i3, i3bar and picom on every change, covering the overlay, the tray icon,
+  fullscreen hiding, `paperlike hide` and live config edits.
 
 ## 0.3.0 (2026-11-27)
 
