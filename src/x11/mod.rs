@@ -45,7 +45,7 @@ x11rb::atom_manager! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Monitor {
     pub name: String,
     pub x: i16,
@@ -53,6 +53,9 @@ pub struct Monitor {
     pub w: u16,
     pub h: u16,
     pub primary: bool,
+    /// Physical size as reported by the monitor; 0 when unknown.
+    pub mm_w: u32,
+    pub mm_h: u32,
 }
 
 pub struct Xc {
@@ -334,7 +337,16 @@ impl Xc {
                 .and_then(|c| c.reply().ok())
                 .map(|r| String::from_utf8_lossy(&r.name).into_owned())
                 .unwrap_or_else(|| format!("monitor-{i}"));
-            out.push(Monitor { name, x: m.x, y: m.y, w: m.width, h: m.height, primary: m.primary });
+            out.push(Monitor {
+                name,
+                x: m.x,
+                y: m.y,
+                w: m.width,
+                h: m.height,
+                primary: m.primary,
+                mm_w: m.width_in_millimeters,
+                mm_h: m.height_in_millimeters,
+            });
         }
         if out.is_empty() {
             // No RandR monitors (e.g. Xvfb): treat the root window as one display.
@@ -346,6 +358,7 @@ impl Xc {
                     w: g.width,
                     h: g.height,
                     primary: true,
+                    ..Monitor::default()
                 });
             }
         }
@@ -402,6 +415,20 @@ impl Xc {
 }
 
 impl Monitor {
+    /// Pixels per inch, if the monitor reports a believable physical size.
+    /// Projectors and some TVs report nothing, or just their aspect ratio.
+    pub fn dpi(&self) -> Option<f32> {
+        if self.mm_w == 0 || self.mm_h == 0 {
+            return None;
+        }
+        let dx = self.w as f32 * 25.4 / self.mm_w as f32;
+        let dy = self.h as f32 * 25.4 / self.mm_h as f32;
+        let believable = (50.0..=600.0).contains(&dx)
+            && (50.0..=600.0).contains(&dy)
+            && (dx / dy - 1.0).abs() < 0.15;
+        believable.then_some((dx + dy) / 2.0)
+    }
+
     fn contains(&self, o: &Monitor) -> bool {
         let (x0, y0) = (self.x as i32, self.y as i32);
         let (x1, y1) = (x0 + self.w as i32, y0 + self.h as i32);
@@ -430,6 +457,27 @@ fn distinct_monitors(monitors: Vec<Monitor>) -> Vec<Monitor> {
     keep
 }
 
+/// The grain scale for each monitor. `base` is what the main monitor (the
+/// primary one, or else the first) uses. With `matched`, the others are
+/// scaled by their pixel density relative to it, so the grain comes out the
+/// same physical size everywhere. Monitors that don't report a believable
+/// size use `base` as it is.
+pub fn grain_scales(base: f32, matched: bool, monitors: &[Monitor]) -> Vec<f32> {
+    let main = monitors.iter().find(|m| m.primary).or(monitors.first());
+    let reference = main.and_then(Monitor::dpi);
+    monitors
+        .iter()
+        .map(|m| match (matched, m.dpi(), reference) {
+            (true, Some(dpi), Some(r)) => {
+                // Eighths keep nearly identical monitors on the same value
+                // (and the same cached texture image).
+                ((base * dpi / r * 8.0).round() / 8.0).clamp(0.5, 4.0)
+            }
+            _ => base,
+        })
+        .collect()
+}
+
 fn intern(conn: &RustConnection, name: &str) -> Res<Atom> {
     Ok(conn.intern_atom(false, name.as_bytes())?.reply()?.atom)
 }
@@ -439,7 +487,36 @@ mod tests {
     use super::*;
 
     fn mon(name: &str, x: i16, y: i16, w: u16, h: u16, primary: bool) -> Monitor {
-        Monitor { name: name.into(), x, y, w, h, primary }
+        Monitor { name: name.into(), x, y, w, h, primary, ..Monitor::default() }
+    }
+
+    fn sized(w: u16, h: u16, mm_w: u32, mm_h: u32, primary: bool) -> Monitor {
+        Monitor { w, h, mm_w, mm_h, primary, ..Monitor::default() }
+    }
+
+    #[test]
+    fn dpi_ignores_unbelievable_sizes() {
+        // 14" 2240x1400 laptop panel: about 188 dpi.
+        let laptop = sized(2240, 1400, 302, 189, true);
+        assert!((laptop.dpi().unwrap() - 188.3).abs() < 1.0);
+        assert_eq!(sized(1920, 1080, 0, 0, false).dpi(), None, "no size");
+        assert_eq!(sized(1920, 1080, 16, 9, false).dpi(), None, "aspect ratio only");
+        assert_eq!(sized(1920, 1080, 600, 100, false).dpi(), None, "inconsistent");
+    }
+
+    #[test]
+    fn grain_matches_the_main_monitor() {
+        let laptop = sized(2240, 1400, 302, 189, true); // ~188 dpi
+        let desk = sized(2560, 1440, 597, 336, false); // 27", ~109 dpi
+        let tv = sized(1920, 1080, 16, 9, false); // no usable size
+        let mons = [laptop.clone(), desk.clone(), tv];
+        assert_eq!(grain_scales(2.0, true, &mons), [2.0, 1.125, 2.0]);
+        assert_eq!(grain_scales(2.0, false, &mons), [2.0, 2.0, 2.0]);
+        // With no primary, the first monitor is the reference.
+        let desk_first = [Monitor { primary: false, ..laptop }, desk];
+        assert_eq!(grain_scales(1.0, true, &desk_first)[0], 1.0);
+        // A lone monitor always gets exactly what was asked for.
+        assert_eq!(grain_scales(1.5, true, &[sized(3840, 2160, 600, 340, false)]), [1.5]);
     }
 
     #[test]

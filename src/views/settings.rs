@@ -10,7 +10,7 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::style::*;
 use crate::ui::widgets::{self, ButtonStyle, FieldEvent, TextBuf};
 use crate::ui::{Col, FontKind, R, Ui, id, idn};
-use crate::x11::keys;
+use crate::x11::{self, keys};
 
 pub const WIDTH: f32 = 780.0;
 pub const HEIGHT: f32 = 530.0;
@@ -455,7 +455,7 @@ impl Settings {
             ui,
             y,
             "Grain scale",
-            "Scales the grain up. Try 1.5× or 2× on HiDPI screens.",
+            "Scales the grain up. Try 1.5× or 2× on HiDPI screens. This is for the main monitor; others are matched to it (see Display).",
             38.0,
             0.0,
         );
@@ -943,6 +943,7 @@ impl Settings {
             }
             y += area_h + 12.0;
         }
+        let grain = x11::grain_scales(ctx.cfg.grain_scale, ctx.cfg.match_grain, &mons);
         for (i, m) in mons.iter().enumerate() {
             let r = R::new(X0, y, CW, 44.0);
             widgets::card(ui, r);
@@ -958,7 +959,7 @@ impl Settings {
             ui.p.text_right(
                 r.right() - 70.0,
                 r.cy(),
-                &format!("{}×{}", m.w, m.h),
+                &format!("{}×{} · grain {}×", m.w, m.h, fmt_scale(grain[i])),
                 FontKind::Medium,
                 11.5,
                 MUTED,
@@ -969,6 +970,20 @@ impl Settings {
             }
             y += 52.0;
         }
+        y += 6.0;
+        let (card, clicked) = Self::row_toggle(
+            ui,
+            y,
+            "d.grain",
+            "Same grain size on every monitor",
+            "Scales the grain to each monitor's pixel density, taking the main monitor as the reference. Monitors that don't report their size are left as they are.",
+            ctx.cfg.match_grain,
+        );
+        if clicked {
+            ctx.cfg.match_grain = !ctx.cfg.match_grain;
+            ctx.changed = true;
+        }
+        y = card.bottom() + 10.0;
         if let Some(name) = toggle {
             let list = &mut ctx.cfg.disabled_outputs;
             if let Some(i) = list.iter().position(|n| *n == name) {
@@ -1206,4 +1221,10 @@ impl Settings {
         }
         r.bottom()
     }
+}
+
+/// `1.5` as "1.5", `2.0` as "2", `1.125` as "1.13".
+fn fmt_scale(v: f32) -> String {
+    let s = format!("{v:.2}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }

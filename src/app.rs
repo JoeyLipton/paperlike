@@ -28,7 +28,7 @@ use crate::x11::keys::{self, Grabs, KeyMap};
 use crate::x11::overlay::{self, Content, Overlay, TextureLayer};
 use crate::x11::surface::Surface;
 use crate::x11::tray::Tray;
-use crate::x11::{Monitor, Res, Xc};
+use crate::x11::{self, Monitor, Res, Xc};
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -523,21 +523,18 @@ impl App {
 
     fn desired(&self) -> Vec<Option<Content>> {
         let paused = self.paused_reason().is_some();
+        let grain = x11::grain_scales(self.cfg.grain_scale, self.cfg.match_grain, &self.monitors);
         self.monitors
             .iter()
-            .map(|m| {
+            .zip(grain)
+            .map(|(m, scale)| {
                 if paused || !self.cfg.output_enabled(&m.name) {
                     return None;
                 }
                 let dark = self.dark_for(Some(m));
                 let texture = self.cfg.enabled.then(|| {
                     let tex = self.cfg.texture(dark);
-                    TextureLayer {
-                        tex,
-                        dark,
-                        intensity: self.cfg.intensity(dark, tex),
-                        scale: self.cfg.grain_scale,
-                    }
+                    TextureLayer { tex, dark, intensity: self.cfg.intensity(dark, tex), scale }
                 });
                 let lamp_on = self.cfg.lamp.enabled && (!self.cfg.lamp.dark_only || dark);
                 let lamp = lamp_on.then_some(self.cfg.lamp.params);
@@ -1062,12 +1059,10 @@ impl App {
                     }
                     None => {
                         let m = self.primary().cloned().unwrap_or(Monitor {
-                            name: String::new(),
-                            x: 0,
-                            y: 0,
                             w: 1280,
                             h: 800,
                             primary: true,
+                            ..Monitor::default()
                         });
                         let (w, h) = (settings::WIDTH * self.scale, settings::HEIGHT * self.scale);
                         let x = m.x + ((m.w as f32 - w) / 2.0).max(0.0) as i16;
@@ -1388,7 +1383,7 @@ mod tests {
     use super::*;
 
     fn monitor(x: i16, y: i16, w: u16, h: u16) -> Monitor {
-        Monitor { name: String::new(), x, y, w, h, primary: false }
+        Monitor { x, y, w, h, ..Monitor::default() }
     }
 
     #[test]

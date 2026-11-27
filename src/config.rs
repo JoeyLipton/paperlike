@@ -287,8 +287,12 @@ pub struct Config {
     /// Textures shown in the control center.
     #[serde(deserialize_with = "known_textures")]
     pub pinned: Vec<TextureId>,
-    /// Device pixels per texture pixel; raise it on HiDPI screens.
+    /// Device pixels per texture pixel on the main monitor; raise it on
+    /// HiDPI screens.
     pub grain_scale: f32,
+    /// Scale the grain on other monitors by their pixel density, so it
+    /// looks the same size on all of them.
+    pub match_grain: bool,
     pub lamp: LampConfig,
     pub schedule: ScheduleConfig,
     pub battery: BatteryConfig,
@@ -310,6 +314,7 @@ impl Default for Config {
             intensity: BTreeMap::new(),
             pinned: vec![TextureId::Matte, TextureId::Crosshatch, TextureId::ColdPress],
             grain_scale: 1.0,
+            match_grain: true,
             lamp: LampConfig::default(),
             schedule: ScheduleConfig::default(),
             battery: BatteryConfig::default(),
