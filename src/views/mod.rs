@@ -25,6 +25,8 @@ pub enum Pause {
     Excluded(String),
     /// "Only listed" mode and the focused app isn't listed.
     NotListed,
+    /// Every covered monitor is showing a fullscreen window.
+    Fullscreen,
 }
 
 impl fmt::Display for Pause {
@@ -37,6 +39,7 @@ impl fmt::Display for Pause {
             Pause::BatteryLow => f.write_str("battery low"),
             Pause::Excluded(app) => write!(f, "{app} excluded"),
             Pause::NotListed => f.write_str("app not listed"),
+            Pause::Fullscreen => f.write_str("fullscreen app"),
         }
     }
 }

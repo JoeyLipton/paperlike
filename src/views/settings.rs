@@ -273,6 +273,20 @@ impl Settings {
                 ctx.send(Cmd::Unsnooze);
             }
         }
+        y = card.bottom() + 10.0;
+
+        let (card, clicked) = Self::row_toggle(
+            ui,
+            y,
+            "p.fullscreen",
+            "Hide in fullscreen apps",
+            "Videos and games play without the texture. Only the monitor showing the fullscreen window is affected.",
+            ctx.cfg.hide_in_fullscreen,
+        );
+        if clicked {
+            ctx.cfg.hide_in_fullscreen = !ctx.cfg.hide_in_fullscreen;
+            ctx.changed = true;
+        }
         y = card.bottom() + 22.0;
 
         widgets::caption(ui, X0 + 4.0, y, "Battery");

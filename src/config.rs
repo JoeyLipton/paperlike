@@ -297,6 +297,8 @@ pub struct Config {
     pub schedule: ScheduleConfig,
     pub battery: BatteryConfig,
     pub exceptions: ExceptionsConfig,
+    /// Hide the texture on monitors showing a fullscreen window.
+    pub hide_in_fullscreen: bool,
     /// RandR output names to leave uncovered.
     pub disabled_outputs: Vec<String>,
     pub hotkeys: HotkeyConfig,
@@ -319,6 +321,7 @@ impl Default for Config {
             schedule: ScheduleConfig::default(),
             battery: BatteryConfig::default(),
             exceptions: ExceptionsConfig::default(),
+            hide_in_fullscreen: true,
             disabled_outputs: Vec::new(),
             hotkeys: HotkeyConfig::default(),
             ui_scale: 0.0,

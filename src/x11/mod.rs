@@ -33,6 +33,7 @@ x11rb::atom_manager! {
         _NET_WM_STATE_STICKY,
         _NET_WM_STATE_SKIP_TASKBAR,
         _NET_WM_STATE_SKIP_PAGER,
+        _NET_WM_STATE_FULLSCREEN,
         _NET_ACTIVE_WINDOW,
         _NET_CLIENT_LIST,
         _NET_WM_BYPASS_COMPOSITOR,
@@ -277,20 +278,58 @@ impl Xc {
         (!instance.is_empty() || !class.is_empty()).then_some((instance, class))
     }
 
-    /// WM_CLASS of every managed client window, for exception suggestions.
-    pub fn client_classes(&self) -> Vec<String> {
-        let Some(r) = self
-            .conn
+    /// Every window the window manager manages (`_NET_CLIENT_LIST`).
+    pub fn clients(&self) -> Vec<Window> {
+        self.conn
             .get_property(false, self.root, self.atoms._NET_CLIENT_LIST, AtomEnum::WINDOW, 0, 4096)
             .ok()
             .and_then(|c| c.reply().ok())
-        else {
-            return Vec::new();
-        };
-        let mut out: Vec<String> = r
-            .value32()
+            .and_then(|r| r.value32().map(Iterator::collect))
+            .unwrap_or_default()
+    }
+
+    /// Root-relative rectangles `(x, y, w, h)` of the windows among
+    /// `clients` that are fullscreen and visible.
+    pub fn fullscreen_rects(&self, clients: &[Window]) -> Vec<(i16, i16, u16, u16)> {
+        let fs = self.atoms._NET_WM_STATE_FULLSCREEN;
+        // Send all the requests before waiting for any reply.
+        let states: Vec<_> = clients
+            .iter()
+            .map(|&w| {
+                self.conn
+                    .get_property(false, w, self.atoms._NET_WM_STATE, AtomEnum::ATOM, 0, 32)
+                    .ok()
+            })
+            .collect();
+        let fullscreen: Vec<Window> = clients
+            .iter()
+            .zip(states)
+            .filter_map(|(&w, cookie)| {
+                let state = cookie?.reply().ok()?;
+                state.value32()?.any(|a| a == fs).then_some(w)
+            })
+            .collect();
+        fullscreen
             .into_iter()
-            .flatten()
+            .filter_map(|w| {
+                let attrs = self.conn.get_window_attributes(w).ok()?;
+                let geom = self.conn.get_geometry(w).ok()?;
+                let pos = self.conn.translate_coordinates(w, self.root, 0, 0).ok()?;
+                // Windows on hidden workspaces are unmapped (or their frames are).
+                if attrs.reply().ok()?.map_state != MapState::VIEWABLE {
+                    return None;
+                }
+                let (g, p) = (geom.reply().ok()?, pos.reply().ok()?);
+                Some((p.dst_x, p.dst_y, g.width, g.height))
+            })
+            .collect()
+    }
+
+    /// WM_CLASS of every managed client window, for exception suggestions.
+    pub fn client_classes(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .clients()
+            .into_iter()
             .filter_map(|w| self.wm_class(w))
             .map(|(_, class)| class)
             .filter(|c| !c.is_empty() && !c.eq_ignore_ascii_case("paperlike"))
@@ -429,6 +468,16 @@ impl Monitor {
         believable.then_some((dx + dy) / 2.0)
     }
 
+    /// Whether the rectangle `(x, y, w, h)` covers at least half of this
+    /// monitor, as a fullscreen window on it does.
+    pub fn mostly_covered_by(&self, (x, y, w, h): (i16, i16, u16, u16)) -> bool {
+        let ix = (x as i32 + w as i32).min(self.x as i32 + self.w as i32)
+            - (x as i32).max(self.x as i32);
+        let iy = (y as i32 + h as i32).min(self.y as i32 + self.h as i32)
+            - (y as i32).max(self.y as i32);
+        ix > 0 && iy > 0 && 2 * ix as i64 * iy as i64 >= self.w as i64 * self.h as i64
+    }
+
     fn contains(&self, o: &Monitor) -> bool {
         let (x0, y0) = (self.x as i32, self.y as i32);
         let (x1, y1) = (x0 + self.w as i32, y0 + self.h as i32);
@@ -492,6 +541,20 @@ mod tests {
 
     fn sized(w: u16, h: u16, mm_w: u32, mm_h: u32, primary: bool) -> Monitor {
         Monitor { w, h, mm_w, mm_h, primary, ..Monitor::default() }
+    }
+
+    #[test]
+    fn fullscreen_windows_cover_their_monitor() {
+        let left = mon("eDP-1", 0, 0, 1920, 1080, true);
+        let right = mon("DP-1", 1920, 0, 2560, 1440, false);
+        let on_right = (1920, 0, 2560, 1440);
+        assert!(right.mostly_covered_by(on_right));
+        assert!(!left.mostly_covered_by(on_right));
+        // i3's "fullscreen global" spans every output.
+        let global = (0, 0, 4480, 1440);
+        assert!(left.mostly_covered_by(global) && right.mostly_covered_by(global));
+        // A big window that isn't fullscreen-sized doesn't count.
+        assert!(!left.mostly_covered_by((0, 0, 900, 1080)));
     }
 
     #[test]

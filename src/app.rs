@@ -2,7 +2,7 @@
 //! runs a single-threaded event loop over the X socket, the command socket and
 //! a handful of timers.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -80,6 +80,11 @@ pub struct App {
     theme: SystemTheme,
     screen_dark: HashMap<String, bool>,
     clients: Vec<String>,
+    /// Monitors (by name) showing a fullscreen window.
+    fullscreen: Vec<String>,
+    fullscreen_dirty: bool,
+    /// Client windows we get property changes from.
+    watched: HashSet<Window>,
 
     overlay_dirty: bool,
     tray_dirty: bool,
@@ -161,6 +166,9 @@ impl App {
             theme: SystemTheme::new(),
             screen_dark: HashMap::new(),
             clients: Vec::new(),
+            fullscreen: Vec::new(),
+            fullscreen_dirty: true,
+            watched: HashSet::new(),
             overlay_dirty: true,
             tray_dirty: true,
             restack_pending: false,
@@ -282,6 +290,9 @@ impl App {
             if self.cmds.is_empty() {
                 break;
             }
+        }
+        if self.fullscreen_dirty {
+            self.update_fullscreen();
         }
         if self.overlay_dirty {
             self.update_overlay()?;
@@ -435,6 +446,7 @@ impl App {
         let now = Instant::now();
         self.next_sample = now;
         self.next_theme_poll = now;
+        self.fullscreen_dirty = true;
         self.state_changed();
     }
 
@@ -450,6 +462,7 @@ impl App {
     /// The configuration changed: apply it and schedule a save.
     fn cfg_changed(&mut self) {
         self.state_changed();
+        self.fullscreen_dirty = true;
         self.save_at = Some(Instant::now() + Duration::from_millis(700));
     }
 
@@ -514,10 +527,44 @@ impl App {
         let listed = self.active.as_ref().is_some_and(|(i, c)| ex.contains(i) || ex.contains(c));
         match (ex.mode, &self.active) {
             (ExceptionMode::Exclude, Some((_, class))) if listed => {
-                Some(Pause::Excluded(class.clone()))
+                return Some(Pause::Excluded(class.clone()));
             }
-            (ExceptionMode::Only, _) if !listed => Some(Pause::NotListed),
-            _ => None,
+            (ExceptionMode::Only, _) if !listed => return Some(Pause::NotListed),
+            _ => {}
+        }
+        let mut shown = self.monitors.iter().filter(|m| self.cfg.output_enabled(&m.name));
+        if !self.fullscreen.is_empty() && shown.all(|m| self.fullscreen.contains(&m.name)) {
+            return Some(Pause::Fullscreen);
+        }
+        None
+    }
+
+    /// Works out which monitors are showing a fullscreen window.
+    fn update_fullscreen(&mut self) {
+        self.fullscreen_dirty = false;
+        let mut now = Vec::new();
+        if self.cfg.hide_in_fullscreen {
+            let clients = self.xc.clients();
+            // Fullscreen state lives on each client, so listen for changes there.
+            for &w in &clients {
+                if self.watched.insert(w) {
+                    let aux =
+                        ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE);
+                    let _ = self.xc.conn.change_window_attributes(w, &aux);
+                }
+            }
+            self.watched.retain(|w| clients.contains(w));
+            let rects = self.xc.fullscreen_rects(&clients);
+            now = self
+                .monitors
+                .iter()
+                .filter(|m| rects.iter().any(|&r| m.mostly_covered_by(r)))
+                .map(|m| m.name.clone())
+                .collect();
+        }
+        if now != self.fullscreen {
+            self.fullscreen = now;
+            self.state_changed();
         }
     }
 
@@ -528,7 +575,8 @@ impl App {
             .iter()
             .zip(grain)
             .map(|(m, scale)| {
-                if paused || !self.cfg.output_enabled(&m.name) {
+                if paused || !self.cfg.output_enabled(&m.name) || self.fullscreen.contains(&m.name)
+                {
                     return None;
                 }
                 let dark = self.dark_for(Some(m));
@@ -556,6 +604,7 @@ impl App {
         if mons != self.monitors {
             self.monitors = mons;
             self.overlay.sync_monitors(&self.xc, &self.monitors)?;
+            self.fullscreen_dirty = true;
             self.state_changed();
         }
         Ok(())
@@ -683,11 +732,18 @@ impl App {
                     self.refresh_monitors()?;
                 } else if e.event == root && !self.is_ours(e.window) {
                     self.restack_pending = true;
+                    self.fullscreen_dirty = true;
                 }
             }
             Event::MapNotify(e) => {
                 if e.event == root && !self.is_ours(e.window) {
                     self.restack_pending = true;
+                    self.fullscreen_dirty = true;
+                }
+            }
+            Event::UnmapNotify(e) => {
+                if e.event == root && !self.is_ours(e.window) {
+                    self.fullscreen_dirty = true;
                 }
             }
             Event::ReparentNotify(e) => {
@@ -719,8 +775,14 @@ impl App {
                 }
             }
             Event::PropertyNotify(e) => {
-                if e.window == root && e.atom == self.xc.atoms._NET_ACTIVE_WINDOW {
+                let a = &self.xc.atoms;
+                if e.window == root && e.atom == a._NET_ACTIVE_WINDOW {
                     self.update_active();
+                    self.fullscreen_dirty = true;
+                } else if (e.window == root && e.atom == a._NET_CLIENT_LIST)
+                    || e.atom == a._NET_WM_STATE
+                {
+                    self.fullscreen_dirty = true;
                 }
             }
             Event::ButtonPress(e) => {
