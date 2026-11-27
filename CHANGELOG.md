@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 (2026-11-27)
+
+- Fixed the settings window ignoring clicks and key presses. It broke in
+  0.3.0, when paperlike started watching windows for fullscreen changes.
+
 ## 1.0.0 (2026-11-27)
 
 The first stable release. The command line and the config file format
