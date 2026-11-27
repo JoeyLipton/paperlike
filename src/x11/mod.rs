@@ -349,7 +349,7 @@ impl Xc {
                 });
             }
         }
-        out
+        distinct_monitors(out)
     }
 
     pub fn pointer(&self) -> (i16, i16) {
@@ -401,6 +401,71 @@ impl Xc {
     }
 }
 
+impl Monitor {
+    fn contains(&self, o: &Monitor) -> bool {
+        let (x0, y0) = (self.x as i32, self.y as i32);
+        let (x1, y1) = (x0 + self.w as i32, y0 + self.h as i32);
+        o.x as i32 >= x0
+            && o.y as i32 >= y0
+            && o.x as i32 + o.w as i32 <= x1
+            && o.y as i32 + o.h as i32 <= y1
+    }
+}
+
+/// Drops monitors that lie entirely inside another one, so no part of the
+/// screen gets two overlays (and twice the texture). This happens with
+/// mirrored outputs, and with virtual monitors from `xrandr --setmonitor`.
+/// Of identical monitors, the primary (or else the first) is kept.
+fn distinct_monitors(monitors: Vec<Monitor>) -> Vec<Monitor> {
+    let mut keep: Vec<Monitor> = Vec::new();
+    // Bigger first, primary first among equals, so containers are seen first.
+    let mut sorted = monitors;
+    sorted.sort_by_key(|m| (std::cmp::Reverse(m.w as u32 * m.h as u32), !m.primary));
+    for m in sorted {
+        if !keep.iter().any(|k| k.contains(&m)) {
+            keep.push(m);
+        }
+    }
+    keep.sort_by_key(|m| (m.x, m.y));
+    keep
+}
+
 fn intern(conn: &RustConnection, name: &str) -> Res<Atom> {
     Ok(conn.intern_atom(false, name.as_bytes())?.reply()?.atom)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mon(name: &str, x: i16, y: i16, w: u16, h: u16, primary: bool) -> Monitor {
+        Monitor { name: name.into(), x, y, w, h, primary }
+    }
+
+    #[test]
+    fn side_by_side_monitors_are_kept() {
+        let m = vec![mon("DP-1", 1920, 0, 2560, 1440, false), mon("eDP-1", 0, 0, 1920, 1080, true)];
+        let names: Vec<_> = distinct_monitors(m).into_iter().map(|m| m.name).collect();
+        assert_eq!(names, ["eDP-1", "DP-1"]);
+    }
+
+    #[test]
+    fn mirrored_monitors_keep_the_primary() {
+        let m = vec![mon("HDMI-1", 0, 0, 1920, 1080, false), mon("eDP-1", 0, 0, 1920, 1080, true)];
+        let out = distinct_monitors(m);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "eDP-1");
+    }
+
+    #[test]
+    fn contained_monitors_are_dropped() {
+        let m = vec![
+            mon("LEFT", 0, 0, 1280, 1600, false),
+            mon("RIGHT", 1280, 0, 1280, 1600, false),
+            mon("screen", 0, 0, 2560, 1600, false),
+        ];
+        let out = distinct_monitors(m);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "screen");
+    }
 }
