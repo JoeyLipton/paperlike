@@ -75,6 +75,11 @@ tray_docked() {
 
 status_has() { timeout 5 "$PAPERLIKE" status | grep -q "$1"; }
 
+settings_window() { xdotool search --name '^Paperlike Settings$' 2>/dev/null | head -1; }
+
+# Whether i3 lists the window as one it manages.
+managed() { xprop -root _NET_CLIENT_LIST | grep -q "$(printf '0x%x' "$1")"; }
+
 # The daemon is our child, so once it exits it's a zombie until reaped.
 exited() { [ ! -d "/proc/$1" ] || grep -q ') Z ' "/proc/$1/stat"; }
 
@@ -119,6 +124,7 @@ config="$XDG_CONFIG_HOME/paperlike/paperlike.toml"
 cat >"$config" <<EOF
 theme_mode = "light"
 light_texture = "matte"
+ui_scale = 1.0
 
 [hotkeys]
 enabled = false
@@ -158,6 +164,20 @@ sed -i '/^enabled = $/d' "$config"
 timeout 5 "$PAPERLIKE" texture parchment >/dev/null
 wait_for "a screen-sized texture renders" 20 status_has "· Parchment ·"
 wait_for "the overlay is back after rendering" 10 overlay_is IsViewable
+
+# The settings window is a managed window like any other, and watching
+# those for fullscreen changes must not take its input away.
+timeout 5 "$PAPERLIKE" settings general >/dev/null
+wait_for "the settings window opens" 5 settings_window
+settings=$(settings_window)
+wait_for "i3 manages the settings window" 5 managed "$settings"
+sleep 0.5
+# The "Paperlike Effect" switch, in window coordinates at UI scale 1.
+xdotool mousemove --window "$settings" 718 97 click 1
+wait_for "the settings window responds to clicks" 5 status_has "^off"
+i3c "[id=$settings] kill"
+wait_for "the settings window closes" 5 sh -c "! xwininfo -id $settings >/dev/null 2>&1"
+timeout 5 "$PAPERLIKE" on >/dev/null
 
 xterm -T smoke-term -e sleep 600 2>/dev/null &
 pids+=($!)

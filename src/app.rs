@@ -555,7 +555,12 @@ impl App {
         self.fullscreen_dirty = false;
         let mut now = Vec::new();
         if self.cfg.hide_in_fullscreen {
-            let clients = self.xc.clients();
+            // Our own windows (the settings window is a managed client) are
+            // skipped: setting an event mask replaces the one this
+            // connection already has on a window, and would cut the
+            // settings window off from its clicks and key presses.
+            let mut clients = self.xc.clients();
+            clients.retain(|&w| !self.is_ours(w));
             // Fullscreen state lives on each client, so listen for changes there.
             for &w in &clients {
                 if self.watched.insert(w) {
