@@ -86,6 +86,10 @@ pub struct App {
     restack_pending: bool,
     raises: VecDeque<Instant>,
     save_at: Option<Instant>,
+    /// When to check that the tray took our icon, and how long to wait
+    /// after that if it didn't.
+    redock_at: Option<Instant>,
+    redock_wait: Duration,
     next_housekeeping: Instant,
     next_theme_poll: Instant,
     next_sample: Instant,
@@ -94,6 +98,13 @@ pub struct App {
 }
 
 const TRAY_SIZE: u16 = 22;
+
+/// i3bar rebuilds its bars when monitors change. That can destroy our icon
+/// or hand it back without the tray itself going away, so no new tray
+/// announces itself: we have to ask to dock again. Waits double from here
+/// up to the last one, then we give up until a tray (re)appears.
+const REDOCK_FIRST_WAIT: Duration = Duration::from_millis(500);
+const REDOCK_LAST_WAIT: Duration = Duration::from_secs(16);
 
 impl App {
     pub fn new(ipc: ipc::Server) -> Res<App> {
@@ -155,6 +166,8 @@ impl App {
             restack_pending: false,
             raises: VecDeque::new(),
             save_at: None,
+            redock_at: None,
+            redock_wait: REDOCK_FIRST_WAIT,
             next_housekeeping: now,
             next_theme_poll: now,
             next_sample: now,
@@ -165,13 +178,13 @@ impl App {
         app.theme.poll();
         app.update_active();
         app.grabs.regrab(&app.xc, &app.keymap, &app.cfg.hotkeys);
-        app.tray.refresh(&app.xc, (TRAY_SIZE as f32 * app.scale) as u16)?;
+        app.dock_tray()?;
         if !app.compositor {
             eprintln!(
                 "paperlike: no compositor is running; the overlay stays hidden until one (e.g. picom) starts"
             );
         }
-        if !app.tray.docked() {
+        if !app.tray.has_manager() {
             eprintln!(
                 "paperlike: no system tray found; use `paperlike panel` or a hotkey to open the control center"
             );
@@ -311,6 +324,48 @@ impl App {
         {
             self.save();
         }
+        if let Some(t) = self.redock_at
+            && now >= t
+        {
+            self.check_dock();
+        }
+    }
+
+    /// Docks the tray icon if there is a tray, and arranges to check that it
+    /// was taken in.
+    fn dock_tray(&mut self) -> Res<()> {
+        self.tray.refresh(&self.xc, (TRAY_SIZE as f32 * self.scale) as u16)?;
+        self.tray_dirty = true;
+        self.redock_at = (self.tray.has_manager() && !self.tray.docked())
+            .then(|| Instant::now() + self.redock_wait);
+        Ok(())
+    }
+
+    fn check_dock(&mut self) {
+        self.redock_at = None;
+        if self.tray.docked() {
+            self.redock_wait = REDOCK_FIRST_WAIT;
+            return;
+        }
+        if self.redock_wait > REDOCK_LAST_WAIT {
+            eprintln!("paperlike: the system tray isn't taking the icon; giving up for now");
+            self.redock_wait = REDOCK_FIRST_WAIT;
+            return;
+        }
+        // Start over with a fresh window, in case the tray ignored the last one.
+        self.tray.undock(&self.xc);
+        self.redock_wait *= 2;
+        if let Err(e) = self.dock_tray() {
+            eprintln!("paperlike: could not dock the tray icon: {e}");
+        }
+    }
+
+    /// The tray let go of our icon, or it was destroyed.
+    fn tray_lost(&mut self) {
+        self.tray.lost(&self.xc);
+        // Give the tray a moment to settle before asking again.
+        self.redock_wait = REDOCK_FIRST_WAIT;
+        self.redock_at = Some(Instant::now() + REDOCK_FIRST_WAIT);
     }
 
     fn timeout_ms(&self) -> i32 {
@@ -329,6 +384,9 @@ impl App {
             }
         }
         if let Some(t) = self.save_at {
+            next = next.min(t);
+        }
+        if let Some(t) = self.redock_at {
             next = next.min(t);
         }
         next.saturating_duration_since(now).as_millis().min(60_000) as i32
@@ -628,14 +686,22 @@ impl App {
                 }
             }
             Event::ReparentNotify(e) => {
-                if self.tray.owns(e.window) && e.parent == root {
-                    self.tray.lost(&self.xc);
+                if self.tray.owns(e.window) {
+                    self.tray.reparented(&self.xc, e.parent);
+                    if self.tray.docked() {
+                        self.redock_at = None;
+                        self.redock_wait = REDOCK_FIRST_WAIT;
+                        self.tray_dirty = true;
+                    } else {
+                        self.tray_lost();
+                    }
                 }
             }
             Event::DestroyNotify(e) => {
-                // Another client (e.g. `xkill`) may destroy our windows.
+                // The tray's window may take ours down with it, and another
+                // client (e.g. `xkill`) may destroy our windows.
                 if self.tray.owns(e.window) {
-                    self.tray.lost(&self.xc);
+                    self.tray_lost();
                 }
                 if self.settings.as_ref().is_some_and(|s| s.0.win == e.window) {
                     self.cmds.push(Cmd::CloseSettings);
@@ -694,8 +760,8 @@ impl App {
                     self.state_changed();
                     self.update_overlay()?;
                 } else if e.selection == self.xc.tray_selection {
-                    self.tray.refresh(&self.xc, (TRAY_SIZE as f32 * self.scale) as u16)?;
-                    self.tray_dirty = true;
+                    self.redock_wait = REDOCK_FIRST_WAIT;
+                    self.dock_tray()?;
                 }
             }
             Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors()?,
@@ -1192,7 +1258,7 @@ impl App {
     fn draw_tray(&mut self) -> Res<()> {
         self.tray_dirty = false;
         let (w, h) = (self.tray.w as u32, self.tray.h as u32);
-        if !self.tray.docked() || w == 0 || h == 0 {
+        if self.tray.win.is_none() || w == 0 || h == 0 {
             return Ok(());
         }
         let Some(mut pm) = tiny_skia::Pixmap::new(w, h) else {

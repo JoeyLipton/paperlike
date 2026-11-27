@@ -14,6 +14,8 @@ const XEMBED_MAPPED: u32 = 1;
 pub struct Tray {
     pub win: Option<Window>,
     manager: Option<Window>,
+    /// The tray has taken our window in (reparented it into itself).
+    embedded: bool,
     argb: bool,
     gc: Option<Gcontext>,
     pub w: u16,
@@ -29,8 +31,20 @@ impl Tray {
         self.win == Some(w)
     }
 
+    /// Whether the icon is actually showing in a tray.
     pub fn docked(&self) -> bool {
-        self.win.is_some()
+        self.embedded
+    }
+
+    /// Whether there is a tray to dock into.
+    pub fn has_manager(&self) -> bool {
+        self.manager.is_some()
+    }
+
+    /// Our window was reparented: into the tray, or back to the root window
+    /// when the tray let go of it.
+    pub fn reparented(&mut self, xc: &Xc, parent: Window) {
+        self.embedded = parent != xc.root;
     }
 
     /// Docks into the current tray, if any. Safe to call repeatedly; it
@@ -135,6 +149,7 @@ impl Tray {
             let _ = xc.conn.destroy_window(w);
         }
         self.manager = None;
+        self.embedded = false;
     }
 
     /// The tray went away (our window got destroyed or reparented to root).

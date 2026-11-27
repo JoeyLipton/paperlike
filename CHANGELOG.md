@@ -14,6 +14,9 @@
 - Memory used while rendering a texture is given back afterwards; Frost
   used to keep about 40 MB. Rendering the screen-sized textures also peaks
   at roughly half the memory it did.
+- The tray icon comes back after i3bar rebuilds its bars, which happens
+  when monitors are added, removed or rearranged. It used to disappear
+  until paperlike was restarted.
 
 ## 0.1.0 (2026-11-26)
 
