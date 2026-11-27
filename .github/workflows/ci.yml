@@ -45,3 +45,19 @@ jobs:
           rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
+
+  desktop:
+    name: Desktop smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install X, i3 and picom
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb i3-wm picom xterm xdotool x11-utils x11-xserver-utils fonts-dejavu-core
+      - name: Install toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - run: tests/desktop.sh target/debug/paperlike
