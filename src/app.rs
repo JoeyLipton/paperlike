@@ -144,7 +144,7 @@ impl App {
             fonts: Fonts::new(),
             scale,
             monitors: Vec::new(),
-            overlay: Overlay::new(),
+            overlay: Overlay::new()?,
             tray: Tray::new(),
             keymap,
             grabs: Grabs::default(),
@@ -203,6 +203,7 @@ impl App {
         let ifd = self.ipc.fd();
         // poll() skips negative descriptors.
         let wfd = self.watch.as_ref().map_or(-1, FileWatch::fd);
+        let rfd = self.overlay.wake_fd();
         while self.running && !STOP.load(Ordering::SeqCst) {
             self.drain()?;
             loop {
@@ -215,8 +216,11 @@ impl App {
             if !self.running {
                 break;
             }
-            let mut fds =
-                [xfd, ifd, wfd].map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 });
+            let mut fds = [xfd, ifd, wfd, rfd].map(|fd| libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
             let timeout = self.timeout_ms();
             // SAFETY: `fds` is a valid array of pollfd structs of the given length.
             unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
@@ -230,6 +234,10 @@ impl App {
                 && self.watch.as_ref().is_some_and(FileWatch::changed)
             {
                 self.config_file_changed();
+            }
+            if fds[3].revents & libc::POLLIN != 0 {
+                // A texture finished rendering; paint the monitors waiting for it.
+                self.overlay_dirty = true;
             }
         }
         self.shutdown();
