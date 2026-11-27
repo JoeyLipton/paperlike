@@ -1,5 +1,8 @@
 //! The command socket. `paperlike <command>` connects, sends one line and
 //! prints whatever the daemon answers.
+//!
+//! `hide` is the exception: the daemon answers once the overlay is hidden
+//! and keeps it hidden until the client closes the connection.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
@@ -29,6 +32,22 @@ pub fn send(cmd: &str) -> std::io::Result<String> {
     let mut out = String::new();
     s.read_to_string(&mut out)?;
     Ok(out)
+}
+
+/// Asks the daemon to hide the overlay for as long as the returned
+/// connection stays open.
+pub fn hold_hidden() -> std::io::Result<UnixStream> {
+    let s = UnixStream::connect(socket_path())?;
+    s.set_read_timeout(Some(Duration::from_secs(5)))?;
+    (&s).write_all(b"hide\n")?;
+    let mut reply = String::new();
+    BufReader::new(&s).read_line(&mut reply)?;
+    match reply.trim() {
+        "hidden" => Ok(s),
+        other => {
+            Err(std::io::Error::other(other.strip_prefix("error: ").unwrap_or(other).to_owned()))
+        }
+    }
 }
 
 pub struct Server {
@@ -84,7 +103,7 @@ impl Drop for Server {
     }
 }
 
-pub fn reply(mut stream: UnixStream, msg: &str) {
+pub fn reply(mut stream: &UnixStream, msg: &str) {
     let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
     let _ = stream.write_all(msg.as_bytes());
     if !msg.ends_with('\n') {

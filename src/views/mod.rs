@@ -27,6 +27,8 @@ pub enum Pause {
     NotListed,
     /// Every covered monitor is showing a fullscreen window.
     Fullscreen,
+    /// `paperlike hide -- <command>` is running.
+    Hidden,
 }
 
 impl fmt::Display for Pause {
@@ -40,6 +42,7 @@ impl fmt::Display for Pause {
             Pause::Excluded(app) => write!(f, "{app} excluded"),
             Pause::NotListed => f.write_str("app not listed"),
             Pause::Fullscreen => f.write_str("fullscreen app"),
+            Pause::Hidden => f.write_str("hidden for a command"),
         }
     }
 }

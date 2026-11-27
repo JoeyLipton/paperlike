@@ -51,7 +51,11 @@ pub enum Cmd {
 /// What a CLI line asks for.
 pub enum Request {
     Run(Cmd),
-    Status { json: bool },
+    Status {
+        json: bool,
+    },
+    /// Hide the overlay until the client disconnects (`paperlike hide`).
+    Hide,
     Help,
 }
 
@@ -70,6 +74,8 @@ usage: paperlike [command]
   lamp [on|off|toggle|<preset>]
   snooze <minutes>|off
   theme <light|dark|system|screen|sun>
+  hide -- <command>     hide the texture while a command runs, e.g. a
+                        screenshot tool
   status [--json]       print the current state (handy for status bars)
   reload                re-read the config file (edits also apply on save)
   quit                  stop the daemon
@@ -143,6 +149,7 @@ pub fn parse(line: &str) -> Result<Request, String> {
             ThemeMode::parse(arg(1)).ok_or("theme must be light, dark, system, screen or sun")?,
         )),
         "status" => Ok(Request::Status { json: arg(1) == "--json" || arg(1) == "json" }),
+        "hide" => Ok(Request::Hide),
         "reload" => run(Cmd::ReloadConfig),
         "quit" | "exit" => run(Cmd::Quit),
         "help" | "--help" | "-h" => Ok(Request::Help),

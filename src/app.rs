@@ -3,7 +3,9 @@
 //! a handful of timers.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::Read;
 use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -62,6 +64,9 @@ pub struct App {
     keymap: KeyMap,
     grabs: Grabs,
     ipc: ipc::Server,
+    /// Connections from `paperlike hide`; the overlay stays hidden while
+    /// any is open.
+    holds: Vec<UnixStream>,
     /// Notices edits to the config file.
     watch: Option<FileWatch>,
     /// What we last wrote to (or read from) the config file, so our own
@@ -154,6 +159,7 @@ impl App {
             keymap,
             grabs: Grabs::default(),
             ipc,
+            holds: Vec::new(),
             watch,
             last_written,
             cc: None,
@@ -224,13 +230,13 @@ impl App {
             if !self.running {
                 break;
             }
-            let mut fds = [xfd, ifd, wfd, rfd].map(|fd| libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            });
+            let mut fds: Vec<libc::pollfd> = [xfd, ifd, wfd, rfd]
+                .into_iter()
+                .chain(self.holds.iter().map(|h| h.as_raw_fd()))
+                .map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 })
+                .collect();
             let timeout = self.timeout_ms();
-            // SAFETY: `fds` is a valid array of pollfd structs of the given length.
+            // SAFETY: `fds` holds `fds.len()` initialised pollfd structs.
             unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
             if fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0 {
                 return Err("lost the connection to the X server".into());
@@ -247,6 +253,8 @@ impl App {
                 // A texture finished rendering; paint the monitors waiting for it.
                 self.overlay_dirty = true;
             }
+            let ready: Vec<bool> = fds[4..].iter().map(|f| f.revents != 0).collect();
+            self.check_holds(&ready);
         }
         self.shutdown();
         Ok(())
@@ -506,6 +514,9 @@ impl App {
     fn paused_reason(&self) -> Option<Pause> {
         if !self.compositor {
             return Some(Pause::NoCompositor);
+        }
+        if !self.holds.is_empty() {
+            return Some(Pause::Hidden);
         }
         if self.snoozed() {
             return Some(Pause::Snoozed);
@@ -948,6 +959,10 @@ impl App {
     fn handle_ipc(&mut self) {
         for (stream, line) in self.ipc.accept() {
             let reply = match cmd::parse(&line) {
+                Ok(Request::Hide) => {
+                    self.hold_hidden(stream);
+                    continue;
+                }
                 Ok(Request::Run(c)) => {
                     let r = self.exec(c);
                     // Apply right away so scripts see the effect before we answer.
@@ -961,7 +976,46 @@ impl App {
                 Ok(Request::Help) => cmd::HELP.to_string(),
                 Err(e) => format!("error: {e}"),
             };
-            ipc::reply(stream, &reply);
+            ipc::reply(&stream, &reply);
+        }
+    }
+
+    /// Hides the overlay for as long as `stream` stays open, and tells the
+    /// client once it's gone from the screen.
+    fn hold_hidden(&mut self, stream: UnixStream) {
+        self.holds.push(stream);
+        self.state_changed();
+        if let Err(e) = self.process() {
+            eprintln!("paperlike: {e}");
+        }
+        // A round trip, so the server has unmapped the overlay before we answer.
+        let _ = self.xc.conn.get_input_focus().map(|c| c.reply());
+        if let Some(s) = self.holds.last() {
+            ipc::reply(s, "hidden");
+            let _ = s.set_nonblocking(true);
+        }
+    }
+
+    /// Drops the `hide` connections that were closed. `ready` says which of
+    /// them poll() flagged.
+    fn check_holds(&mut self, ready: &[bool]) {
+        let before = self.holds.len();
+        let mut i = 0;
+        self.holds.retain(|mut s| {
+            let flagged = ready.get(i).copied().unwrap_or(false);
+            i += 1;
+            if !flagged {
+                return true;
+            }
+            let mut buf = [0u8; 64];
+            match s.read(&mut buf) {
+                Ok(0) => false,
+                Ok(_) => true,
+                Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+            }
+        });
+        if self.holds.len() != before {
+            self.state_changed();
         }
     }
 
