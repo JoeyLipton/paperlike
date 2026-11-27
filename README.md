@@ -32,17 +32,21 @@ image at full size to see the grain.</sub>
 - **Desk Lamp**: a warm glow from a corner or edge of the screen, with six
   presets and adjustable warmth, spread and dimming.
 - **Snooze** for 1, 5, 10 or 15 minutes.
+- **Gets out of the way** of fullscreen videos and games (only on the
+  monitor they're on), and of screenshots taken with `paperlike hide`.
 - **Per-app exceptions**: hide the texture in certain apps (say, GIMP or
   mpv), or only show it in certain apps.
 - **Schedule**: always on, daytime, night-time or custom hours.
 - **Battery saver**: pause on battery or below a charge level.
-- **Multi-monitor**, with a per-monitor on/off switch.
+- **Multi-monitor**, with a per-monitor on/off switch. The grain is
+  scaled to each monitor's pixel density so it looks the same size on a
+  HiDPI laptop and a regular external screen.
 - **Tray icon, control center and settings window**, plus global hotkeys
   and a command line for scripting and status bars.
 
 It uses about 10 MB of memory and no CPU when idle. Each texture is rendered
-once and tiled by the X server, so nothing repaints unless you change
-something.
+once, on a background thread, and tiled by the X server, so nothing
+repaints unless you change something.
 
 ## Requirements
 
@@ -105,9 +109,26 @@ paperlike intensity <N|+N|-N>
 paperlike lamp [on|off|toggle|<preset>]
 paperlike snooze <minutes>|off
 paperlike theme <light|dark|system|screen|sun>
+paperlike hide -- <command>   hide the texture while a command runs
 paperlike status [--json]
 paperlike reload | quit
 ```
+
+### Screenshots
+
+Screenshot tools capture the texture too. `paperlike hide` hides it, runs a
+command and brings it back when the command exits:
+
+```
+bindsym Print exec --no-startup-id paperlike hide -- maim ~/Pictures/screenshot.png
+bindsym Shift+Print exec --no-startup-id paperlike hide -- maim -s ~/Pictures/screenshot.png
+```
+
+It waits for the command to finish, so use a tool that exits once the
+picture is taken (`maim`, `scrot`, `import`) rather than one that hands the
+work to a background process and returns straight away.
+
+### Status bars
 
 For an i3blocks block:
 
@@ -143,8 +164,10 @@ whenever you change something, and edits you make to the file apply as soon
 as you save it. If an edit doesn't parse, it's ignored (the error is printed)
 and the current settings stay in place. Two options are only in the file:
 
-- `grain_scale`: texture pixels to screen pixels. Try `1.5` or `2` on HiDPI
-  screens (it's also on the Texture page).
+- `grain_scale`: texture pixels to screen pixels on the main monitor. Try
+  `1.5` or `2` on HiDPI screens (it's also on the Texture page). Other
+  monitors are matched to it by pixel density unless `match_grain` is
+  `false`.
 - `ui_scale`: size of the UI. `0` (the default) uses `Xft.dpi`.
 
 ## How it works

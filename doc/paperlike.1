@@ -1,4 +1,4 @@
-.TH PAPERLIKE 1 "2026-11" "paperlike 0.2.0" "User Commands"
+.TH PAPERLIKE 1 "2026-11" "paperlike 0.3.0" "User Commands"
 .SH NAME
 paperlike \- paper-like texture overlay for X11 desktops
 .SH SYNOPSIS
@@ -62,6 +62,14 @@ Hide the texture for a while, or bring it back early.
 Choose how the light or dark texture is picked:
 always light, always dark, following the GTK colour scheme, following what
 each monitor shows, or by sunrise and sunset.
+.TP
+.BR hide " \-\- \fIcommand\fR [\fIargs\fR ...]"
+Hide the texture, run
+.IR command ,
+and show the texture again when it exits, for example to take a
+screenshot.
+The exit status is the command's.
+Without a running daemon the command simply runs.
 .TP
 .BR status " [" \-\-json ]
 Print the current state, for example for a status bar.
@@ -134,6 +142,7 @@ Start with i3, in
 .nf
 exec \-\-no\-startup\-id paperlike
 bindsym $mod+Mod1+t exec \-\-no\-startup\-id paperlike next
+bindsym Print exec \-\-no\-startup\-id paperlike hide \-\- maim ~/shot.png
 .fi
 .RE
 .SH SEE ALSO

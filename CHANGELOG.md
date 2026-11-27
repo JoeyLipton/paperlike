@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (2026-11-27)
+
+- The texture hides on monitors showing a fullscreen window, so videos and
+  games play without it. Other monitors keep theirs. It can be turned off
+  in Settings › General.
+- `paperlike hide -- <command>` hides the texture while a command runs,
+  for screenshots: `bindsym Print exec paperlike hide -- maim ~/shot.png`.
+- The grain is matched across monitors of different pixel densities.
+  `grain_scale` now applies to the main monitor, and the others are scaled
+  to look the same size. Single-monitor setups are unchanged. It can be
+  turned off in Settings › Display.
+- Textures render on a background thread. The UI and commands no longer
+  freeze while a large texture renders, and the old texture stays up until
+  the new one is ready.
+
 ## 0.2.0 (2026-11-26)
 
 - The config file is now `~/.config/paperlike/paperlike.toml`. An existing
